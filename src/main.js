@@ -1,104 +1,122 @@
-var x11 = require('x11');
-var x11prop = require('x11-prop');
+const x11 = require('x11');
+
+const CurrentTime = 0;
+const GrabModeSync = 0;
+const GrabModeAsync = 1;
+const SyncPointer = 0;
 
 var Exposure = x11.eventMask.Exposure;
 var PointerMotion = x11.eventMask.PointerMotion;
 
 // Init connection with X
-x11.createClient(function(err, display) {
+x11.createClient(async function(err, display) {
     var X = display.client;
     var root = display.screen[0].root;
 
-    // ----- Get the window list
-    x11prop.get_property(X, root, "_NET_CLIENT_LIST", X.atoms.WINDOW, function (err, data) {
-        if (err) {
-             console.error(err);
-             return;
-        }
+    var white = display.screen[0].white_pixel;
 
-        var windowList = {};
+    X.require('composite', function(err, Composite) {
+        X.require('damage', function(err, Damage) {
+            X.require('render', function(err, Render) {
+                // --- Select window
+                console.log('Select a window with your mouse cursor...');
 
-        // We need to obtain all names fom windows
-        var promises = data.map(function(window) {
-            return new Promise(function(resolve, reject) {
-                x11prop.get_property(X, window, X.atoms.WM_NAME, "UTF8_STRING", function (err, data) {
-                    if (err) {
-                        console.error(err);
-                        reject();
+                // Grab the control of the pointer to allow user click the window that wants
+                X.GrabPointer(root, false, x11.eventMask.ButtonPress | x11.eventMask.ButtonRelease, GrabModeSync, GrabModeAsync, 0, 0, CurrentTime);
+                X.AllowEvents(SyncPointer, CurrentTime);
+
+                // Set a timeout to exit the application in case no one clicks a window
+                var timeoutId = setTimeout(function () {
+                    X.UngrabPointer(CurrentTime);
+                    process.exit();
+                }, 5000);
+
+                // Wait for a button press
+                X.on('event', async function (ev) {
+                    // We only want presses
+                    if (ev.name !== 'ButtonPress' || ev.child === root) {
+                        return;
                     }
 
-                    var result = data.toString();
+                    // Avoid to execute the default timeout
+                    clearTimeout(timeoutId);
 
-                    if (!result) {
-                        // It might be that the name is not in UTF-8: obtain the compose name
-                        x11prop.get_property(X, window, X.atoms.WM_NAME, "STRING", function (err, data) {
-                            if (err) {
-                                console.error(err);
-                                reject();
-                            }
+                    var widSrc = ev.child;
 
-                            result = data.toString();
+                    console.log("You've chosen Window #" + widSrc);
 
-                            if (result) {
-                                windowList[window] = result;
-                            }
+                    // Let the user click again normally
+                    X.UngrabPointer(CurrentTime);
 
-                            resolve();
+                    // Allow compositing
+                    Composite.RedirectSubwindows(root, Composite.Redirect.Automatic);
+
+                    // Prepare damage for detecting changes in the source window
+                    var damage = X.AllocID();
+                    Damage.Create(damage, widSrc, Damage.ReportLevel.NonEmpty)
+
+                    // Get info about the geometry of the source window
+                    var geometrySource = await new Promise(function (resolve, reject) {
+                        X.GetGeometry(widSrc, function(err, data) {
+                            resolve(data);
                         });
-                    } else {
-                        windowList[window] = result;
-                        resolve();
+                    });
+
+                    // Calculate the depthFormat from the depth of the source
+                    var format = 0;
+
+                    switch (geometrySource.depth) {
+                        case 32:
+                            format = Render.rgba32;
+                            break;
+                        case 24:
+                            format = Render.rgb24;
+                            break;
+                        default:
+                            console.err("No depthFormat defined for depth " + geometrySource.depth);
+                            process.exit();
                     }
-                });
-            });
-        });
 
-        Promise.all(promises).then(function () {
-            console.log(windowList);
+                    // Create the render for the source
+                    var renderIdSrc = X.AllocID();
+                    Render.CreatePicture(renderIdSrc, widSrc, format, {subwindowMode: 1});
 
-            X.require('composite', function(err, Composite) {
-                X.require('damage', function(err, Damage) {
-                    X.require('render', function(err, Render) {
-                        // Obtain the ID of the window we want to monitor
-                        // TODO: Make this dynamic
-                        var wid = Object.keys(windowList)[2];
-                        console.log(wid);
+                    // Create the destination window
+                    var widDest = X.AllocID();
 
-                        Composite.RedirectSubwindows(root, Composite.Redirect.Automatic);
+                    var widthDest = 1920/4;
+                    var heightDest = 1080/4;
 
-                        var damage = X.AllocID();
-                        Damage.Create(damage, wid, Damage.ReportLevel.NonEmpty);
+                    X.CreateWindow(widDest, display.screen[0].root, 0, 0, widthDest, heightDest);
+                    X.ChangeWindowAttributes(widDest, {
+                        eventMask: Exposure|PointerMotion,
+                        backgroundPixel: white
+                    });
+                    X.ChangeProperty(0, widDest, X.atoms.WM_NAME, X.atoms.STRING, 8, "Window Spy");
+                    X.MapWindow(widDest);
 
-                        var rid = X.AllocID();
-                        Render.CreatePicture(rid, wid, Render.rgba32, {subwindowMode: 1});
+                    // Create the render for the destination window
+                    var ridDest = X.AllocID();
+                    Render.CreatePicture(ridDest, widDest, Render.rgb24);
 
-                        var white = display.screen[0].white_pixel;
-                        var newwin = X.AllocID();
+                    var scale = widthDest / geometrySource.width;
+                    var tmp =  geometrySource.height * scale;
 
-                        X.CreateWindow(newwin, display.screen[0].root, 0, 0, 600, 600);
-                        X.ChangeWindowAttributes(newwin, {
-                            eventMask: Exposure|PointerMotion,
-                            backgroundPixel: white
-                        });
-                        X.ChangeProperty(0, newwin, X.atoms.WM_NAME, X.atoms.STRING, 8, "Hello screen");
-                        X.MapWindow(newwin);
+                    if (tmp > heightDest) {
+                        scale = heightDest / geometrySource.height;
+                    }
 
-                        var ridDest = X.AllocID();
-                        Render.CreatePicture(ridDest, newwin, Render.rgb24);
+                    console.log(scale);
 
-                        var scale = 0.5;
-                        Render.SetPictureTransform(rid, [1,0,0,0,1,0,0,0,scale]);
-                        Render.SetPictureFilter(rid, 'bilinear', []);
+                    Render.SetPictureTransform(renderIdSrc, [1,0,0,0,1,0,0,0,scale]);
+                    Render.SetPictureFilter(renderIdSrc, 'bilinear', []);
 
-                        X.on('event', function(ev) {
-                            Damage.Subtract(damage, 0, 0);
-                            Render.Composite(3, rid, 0, ridDest, 0, 0, 0, 0, 0, 0, 400, 400);
-                        });
+                    X.on('event', function(ev) {
+                        Damage.Subtract(damage, 0, 0);
+                        Render.Composite(3, renderIdSrc, 0, ridDest, 0, 0, 0, 0, 0, 0, 4000, 4000);
                     });
                 });
             });
-
-            X.on('error', function(err) { console.log(err); });
         });
     });
 });

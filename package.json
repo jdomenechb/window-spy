@@ -1,6 +1,12 @@
 {
+  "name": "window-spy",
+  "version": "0.1.0",
+  "main": "src/main.js",
   "devDependencies": {
     "x11": "^2.2.1",
     "x11-prop": "^0.4.3"
+  },
+  "dependencies": {
+    "async": "^2.5.0"
   }
 }
