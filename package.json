@@ -2,6 +2,11 @@
   "name": "window-spy",
   "version": "0.1.0",
   "main": "src/main.js",
+  "licenses": [
+    {
+      "type": "MIT"
+    }
+  ],
   "devDependencies": {},
   "dependencies": {
     "x11": "^2.2.1"

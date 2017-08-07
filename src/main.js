@@ -1,3 +1,7 @@
+/**
+ * Copyright (C) 2017 Jordi Domènech Bonilla
+ */
+
 const x11 = require('x11');
 
 const CurrentTime = 0;
@@ -10,6 +14,15 @@ const ButtonRelease = x11.eventMask.ButtonRelease;
 
 const Exposure = x11.eventMask.Exposure;
 
+/**
+ * Given the size of the source window and the size of the destination window, calculates, the scale and the offset in
+ * which the mirrored image must be put.
+ * @param srcW
+ * @param srcH
+ * @param destW
+ * @param destH
+ * @returns {{xOffset: number, yOffset: number, scale: number}}
+ */
 function calculateScaleAndOffset(srcW, srcH, destW, destH)
 {
     let toReturn = {xOffset: 0, yOffset: 0, scale: destW / srcW};
