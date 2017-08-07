@@ -65,7 +65,7 @@ x11.createClient(async function(err, display) {
                         X.UngrabPointer(CurrentTime);
 
                         // Allow compositing
-                        Composite.RedirectSubwindows(root, Composite.Redirect.Automatic);
+                        Composite.RedirectWindow(widSrc, Composite.Redirect.Automatic);
 
                         // Prepare damage and shape for detecting changes in the source window
                         let damage = X.AllocID();
