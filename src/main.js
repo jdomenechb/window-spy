@@ -39,6 +39,11 @@ function calculateScaleAndOffset(srcW, srcH, destW, destH)
     return toReturn;
 }
 
+/**
+ * Get a visual of 32 bits that can handle RGBA.
+ * @param display
+ * @returns {*}
+ */
 function getRGBAVisual(display)
 {
     let visual;
@@ -62,6 +67,11 @@ function getRGBAVisual(display)
     return visual;
 }
 
+/**
+ * Creates a window for selection the region that is wanted to show from the window, and handles everything related.
+ * @param display
+ * @returns {Promise.<*>}
+ */
 async function createSelectRegionWindow(display)
 {
     let X = display.client;
@@ -93,7 +103,7 @@ async function createSelectRegionWindow(display)
     let selectionStarted = false;
 
     let selectedArea = await new Promise(function (resolve, reject) {
-        let selectedArea = {x: 0, y: 0, xEnd: 0, yEnd: 0};
+        let selectedArea = {x: 0, y: 0, width: 0, height: 0};
 
         X.on('event', function (ev) {
             if (ev.name === 'ButtonPress' && !selectionStarted) {
@@ -130,8 +140,8 @@ async function createSelectRegionWindow(display)
 
             if (ev.name === 'ButtonRelease' && selectionStarted) {
                 if (ev.x > selectedArea.x && ev.y > selectedArea.y) {
-                    selectedArea.xEnd = ev.x;
-                    selectedArea.yEnd = ev.y;
+                    selectedArea.width = ev.x - selectedArea.x;
+                    selectedArea.height = ev.y - selectedArea.y;
 
                     console.log("Selected area to display:");
                     console.log(selectedArea);
@@ -149,6 +159,14 @@ async function createSelectRegionWindow(display)
     return selectedArea;
 }
 
+/**
+ * Given an ARGB color, calculates its representation in Int.
+ * @param a
+ * @param r
+ * @param g
+ * @param b
+ * @returns {number}
+ */
 function colorInt (a,r,g,b) {
     var a1 = a / 255;
     var ra = Math.floor(a1*r);
@@ -184,7 +202,6 @@ x11.createClient(async function(err, display) {
                     }, 5000);
 
                     // Wait for a button press
-
                     let widSrc = await new Promise(function (resolve, reject) {
                         let pressCallback = async function (ev) {
                             // We only want presses
@@ -210,8 +227,8 @@ x11.createClient(async function(err, display) {
                     X.UngrabPointer(CurrentTime);
 
                     // Get the selected area of the window to show
-                    //console.log('Select the area you want to mirror...');
-                    //let selectedArea = await createSelectRegionWindow(display);
+                    console.log('Select the area you want to mirror...');
+                    let selectedArea = await createSelectRegionWindow(display);
 
                     // Allow compositing
                     Composite.RedirectWindow(widSrc, Composite.Redirect.Automatic);
@@ -266,10 +283,9 @@ x11.createClient(async function(err, display) {
                     let ridDest = X.AllocID();
                     Render.CreatePicture(ridDest, widDest, Render.rgb24);
 
-                    // Calculate the scale and prepare the source render accordingly
                     let scaleAndOffset = calculateScaleAndOffset(
-                        geometrySource.width,
-                        geometrySource.height,
+                        selectedArea.width,
+                        selectedArea.height,
                         widthDest,
                         heightDest
                     );
@@ -291,8 +307,16 @@ x11.createClient(async function(err, display) {
                         }
 
                         if (resized && ev.name === 'DamageNotify') {
-                            console.log(ev);
-                            scaleAndOffset = calculateScaleAndOffset(ev.area.w, ev.area.h, widthDest, heightDest)
+                            let calWidth = Math.min(selectedArea.width, ev.area.w - selectedArea.x);
+                            let calHeight = Math.min(selectedArea.height, ev.area.h - selectedArea.y);
+
+                            scaleAndOffset = calculateScaleAndOffset(
+                                calWidth,
+                                calHeight,
+                                widthDest,
+                                heightDest
+                            );
+
                             Render.SetPictureTransform(renderIdSrc, [1,0,0,0,1,0,0,0,scaleAndOffset.scale]);
                         }
 
@@ -300,7 +324,7 @@ x11.createClient(async function(err, display) {
 
                         // Render white first and then the mirrored window over
                         Render.Composite(3, renderIdWhite, 0, ridDest, 0, 0, 0, 0, 0, 0, widthDest, heightDest);
-                        Render.Composite(3, renderIdSrc, 0, ridDest, 0, 0, 0, 0, scaleAndOffset.xOffset, scaleAndOffset.yOffset, widthDest, heightDest);
+                        Render.Composite(3, renderIdSrc, 0, ridDest, selectedArea.x * scaleAndOffset.scale, selectedArea.y * scaleAndOffset.scale, 0, 0, scaleAndOffset.xOffset, scaleAndOffset.yOffset, selectedArea.width * scaleAndOffset.scale, selectedArea.height * scaleAndOffset.scale);
                     });
                 });
             });
