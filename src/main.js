@@ -11,6 +11,7 @@ const SyncPointer = 0;
 
 const ButtonPress = x11.eventMask.ButtonPress;
 const ButtonRelease = x11.eventMask.ButtonRelease;
+const PointerMotion = x11.eventMask.PointerMotion;
 
 const Exposure = x11.eventMask.Exposure;
 
@@ -38,6 +39,125 @@ function calculateScaleAndOffset(srcW, srcH, destW, destH)
     return toReturn;
 }
 
+function getRGBAVisual(display)
+{
+    let visual;
+    let rgbaVisuals = Object.keys(display.screen[0].depths[32]);
+
+    for (let v in rgbaVisuals) {
+        let vid = rgbaVisuals[v];
+
+        if (display.screen[0].depths[32][vid].class === 4) {
+            visual = vid;
+
+            break;
+        }
+    }
+
+    if (visual === undefined) {
+        console.log('No RGBA visual found');
+        return;
+    }
+
+    return visual;
+}
+
+async function createSelectRegionWindow(display)
+{
+    let X = display.client;
+    let root = display.screen[0].root;
+
+    let visual = getRGBAVisual(display);
+
+    let cmid = X.AllocID();
+    X.CreateColormap(cmid, root, visual, 0);
+
+    let markerWid = X.AllocID();
+    X.CreateWindow(
+        markerWid, root, 0, 0,
+        display.screen[0].pixel_width,
+        display.screen[0].pixel_height,
+        0, 32, 1, visual,
+        {
+            eventMask: Exposure | ButtonPress | ButtonRelease | PointerMotion,
+            backgroundPixel: colorInt(128, 128, 128, 128),
+            overrideRedirect: true,
+            colormap: cmid,
+            borderPixel: 0
+        }
+    );
+
+    X.MapWindow(markerWid);
+
+    let subWid;
+    let selectionStarted = false;
+
+    let selectedArea = await new Promise(function (resolve, reject) {
+        let selectedArea = {x: 0, y: 0, xEnd: 0, yEnd: 0};
+
+        X.on('event', function (ev) {
+            if (ev.name === 'ButtonPress' && !selectionStarted) {
+                selectedArea.x = ev.x;
+                selectedArea.y = ev.y;
+
+                subWid = X.AllocID();
+
+                X.CreateWindow(subWid, markerWid, ev.x, ev.y, 1, 1, 0, 32, 1, visual, {
+                    overrideRedirect: true,
+                    colormap: cmid,
+                    borderPixel: 0,
+                    backgroundPixel: 0
+                });
+
+                X.MapWindow(subWid);
+                selectionStarted = true;
+            }
+
+            if (ev.name === 'MotionNotify' && selectionStarted) {
+                let selWidth = ev.x - selectedArea.x;
+                let selHeight = ev.y - selectedArea.y;
+
+                if (selWidth < 1) {
+                    selWidth = 1;
+                }
+
+                if (selHeight < 1) {
+                    selHeight = 1;
+                }
+
+                X.ResizeWindow(subWid, selWidth, selHeight);
+            }
+
+            if (ev.name === 'ButtonRelease' && selectionStarted) {
+                if (ev.x > selectedArea.x && ev.y > selectedArea.y) {
+                    selectedArea.xEnd = ev.x;
+                    selectedArea.yEnd = ev.y;
+
+                    console.log("Selected area to display:");
+                    console.log(selectedArea);
+
+                    selectionStarted = false;
+
+                    resolve(selectedArea);
+                }
+            }
+        });
+    });
+
+    X.DestroyWindow(markerWid);
+
+    return selectedArea;
+}
+
+function colorInt (a,r,g,b) {
+    var a1 = a / 255;
+    var ra = Math.floor(a1*r);
+    var ga = Math.floor(a1*g);
+    var ba = Math.floor(a1*b);
+    var d = 256;
+    return a*d*d*d + ra*d*d + ga*d + ba;
+}
+
 // Init connection with X
 x11.createClient(async function(err, display) {
     let X = display.client;
@@ -48,7 +168,7 @@ x11.createClient(async function(err, display) {
     X.require('composite', function(err, Composite) {
         X.require('damage', function(err, Damage) {
             X.require('render', function(err, Render) {
-                X.require('shape', function(err, Shape) {
+                X.require('shape', async function(err, Shape) {
                     // --- Select window
                     console.log('Select a window with your mouse cursor...');
                     console.log('If none selected, the application will exit in 5 seconds.');
@@ -64,111 +184,123 @@ x11.createClient(async function(err, display) {
                     }, 5000);
 
                     // Wait for a button press
-                    X.on('event', async function (ev) {
-                        // We only want presses
-                        if (ev.name !== 'ButtonPress' || ev.child === root) {
-                            return;
-                        }
 
-                        // Avoid to execute the default timeout
-                        clearTimeout(timeoutId);
-
-                        let widSrc = ev.child;
-
-                        console.log("You've chosen Window #" + widSrc);
-
-                        // Let the user click again normally
-                        X.UngrabPointer(CurrentTime);
-
-                        // Allow compositing
-                        Composite.RedirectWindow(widSrc, Composite.Redirect.Automatic);
-
-                        // Prepare damage and shape for detecting changes in the source window
-                        let damage = X.AllocID();
-                        Damage.Create(damage, widSrc, Damage.ReportLevel.NonEmpty);
-
-                        Shape.SelectInput(widSrc, true);
-
-                        // Get info about the geometry of the source window
-                        let geometrySource = await new Promise(function (resolve, reject) {
-                            X.GetGeometry(widSrc, function(err, data) {
-                                resolve(data);
-                            });
-                        });
-
-                        // Calculate the depthFormat from the depth of the source
-                        let format = 0;
-
-                        switch (geometrySource.depth) {
-                            case 32:
-                                format = Render.rgba32;
-                                break;
-                            case 24:
-                                format = Render.rgb24;
-                                break;
-                            default:
-                                console.err("No depthFormat defined for depth " + geometrySource.depth);
-                                process.exit();
-                        }
-
-                        // Create the render for the source
-                        let renderIdSrc = X.AllocID();
-                        Render.CreatePicture(renderIdSrc, widSrc, format, {subwindowMode: 1});
-
-                        // Create the destination window
-                        let widDest = X.AllocID();
-
-                        let widthDest = 1920/4;
-                        let heightDest = 1080/4;
-
-                        X.CreateWindow(widDest, display.screen[0].root, 0, 0, widthDest, heightDest);
-                        X.ChangeWindowAttributes(widDest, {
-                            eventMask: Exposure,
-                            backgroundPixel: white
-                        });
-                        X.ChangeProperty(0, widDest, X.atoms.WM_NAME, X.atoms.STRING, 8, "Window Spy");
-                        X.MapWindow(widDest);
-
-                        // Create the render for the destination window
-                        let ridDest = X.AllocID();
-                        Render.CreatePicture(ridDest, widDest, Render.rgb24);
-
-                        // Calculate the scale and prepare the source render accordingly
-                        let scaleAndOffset = calculateScaleAndOffset(
-                            geometrySource.width,
-                            geometrySource.height,
-                            widthDest,
-                            heightDest
-                        );
-
-                        Render.SetPictureTransform(renderIdSrc, [1,0,0,0,1,0,0,0,scaleAndOffset.scale]);
-                        Render.SetPictureFilter(renderIdSrc, 'bilinear', []);
-
-                        // Create the white fill-in
-                        let renderIdWhite = X.AllocID();
-                        Render.CreateSolidFill(renderIdWhite, 255, 255, 255, 0);
-
-                        let resized = false;
-
-                        X.on('event', async function(ev) {
-                            // Treat the case the window is resized
-                            if (ev.type === 64) {
-                                // Scale event
-                                resized = true;
+                    let widSrc = await new Promise(function (resolve, reject) {
+                        let pressCallback = async function (ev) {
+                            // We only want presses
+                            if (ev.name !== 'ButtonPress' || ev.child === root) {
+                                return;
                             }
 
-                            if (resized && ev.name === 'DamageNotify') {
-                                console.log(ev);
-                                scaleAndOffset = calculateScaleAndOffset(ev.area.w, ev.area.h, widthDest, heightDest)
-                                Render.SetPictureTransform(renderIdSrc, [1,0,0,0,1,0,0,0,scaleAndOffset.scale]);
-                            }
+                            X.removeListener('event', pressCallback);
 
-                            Damage.Subtract(damage, 0, 0);
+                            // Avoid to execute the default timeout
+                            clearTimeout(timeoutId);
 
-                            // Render white first and then the mirrored window over
-                            Render.Composite(3, renderIdWhite, 0, ridDest, 0, 0, 0, 0, 0, 0, widthDest, heightDest);
-                            Render.Composite(3, renderIdSrc, 0, ridDest, 0, 0, 0, 0, scaleAndOffset.xOffset, scaleAndOffset.yOffset, widthDest, heightDest);
+                            resolve(ev.child);
+                        };
+
+                        X.on('event', pressCallback);
+                    });
+
+                    console.log("You've chosen Window #" + widSrc);
+                    console.log('');
+
+                    // Let the user click again normally
+                    X.UngrabPointer(CurrentTime);
+
+                    // Get the selected area of the window to show
+                    //console.log('Select the area you want to mirror...');
+                    //let selectedArea = await createSelectRegionWindow(display);
+
+                    // Allow compositing
+                    Composite.RedirectWindow(widSrc, Composite.Redirect.Automatic);
+
+                    // Prepare damage and shape for detecting changes in the source window
+                    let damage = X.AllocID();
+                    Damage.Create(damage, widSrc, Damage.ReportLevel.NonEmpty);
+
+                    Shape.SelectInput(widSrc, true);
+
+                    // Get info about the geometry of the source window
+                    let geometrySource = await new Promise(function (resolve, reject) {
+                        X.GetGeometry(widSrc, function(err, data) {
+                            resolve(data);
                         });
+                    });
+
+                    // Calculate the depthFormat from the depth of the source
+                    let format = 0;
+
+                    switch (geometrySource.depth) {
+                        case 32:
+                            format = Render.rgba32;
+                            break;
+                        case 24:
+                            format = Render.rgb24;
+                            break;
+                        default:
+                            console.err("No depthFormat defined for depth " + geometrySource.depth);
+                            process.exit();
+                    }
+
+                    // Create the render for the source
+                    let renderIdSrc = X.AllocID();
+                    Render.CreatePicture(renderIdSrc, widSrc, format, {subwindowMode: 1});
+
+                    // Create the destination window
+                    let widDest = X.AllocID();
+
+                    let widthDest = 1920/4;
+                    let heightDest = 1080/4;
+
+                    X.CreateWindow(widDest, display.screen[0].root, 0, 0, widthDest, heightDest);
+                    X.ChangeWindowAttributes(widDest, {
+                        eventMask: Exposure,
+                        backgroundPixel: white
+                    });
+                    X.ChangeProperty(0, widDest, X.atoms.WM_NAME, X.atoms.STRING, 8, "Window Spy");
+                    X.MapWindow(widDest);
+
+                    // Create the render for the destination window
+                    let ridDest = X.AllocID();
+                    Render.CreatePicture(ridDest, widDest, Render.rgb24);
+
+                    // Calculate the scale and prepare the source render accordingly
+                    let scaleAndOffset = calculateScaleAndOffset(
+                        geometrySource.width,
+                        geometrySource.height,
+                        widthDest,
+                        heightDest
+                    );
+
+                    Render.SetPictureTransform(renderIdSrc, [1,0,0,0,1,0,0,0,scaleAndOffset.scale]);
+                    Render.SetPictureFilter(renderIdSrc, 'bilinear', []);
+
+                    // Create the white fill-in
+                    let renderIdWhite = X.AllocID();
+                    Render.CreateSolidFill(renderIdWhite, 255, 255, 255, 0);
+
+                    let resized = false;
+
+                    X.on('event', async function(ev) {
+                        // Treat the case the window is resized
+                        if (ev.type === 64) {
+                            // Scale event
+                            resized = true;
+                        }
+
+                        if (resized && ev.name === 'DamageNotify') {
+                            console.log(ev);
+                            scaleAndOffset = calculateScaleAndOffset(ev.area.w, ev.area.h, widthDest, heightDest)
+                            Render.SetPictureTransform(renderIdSrc, [1,0,0,0,1,0,0,0,scaleAndOffset.scale]);
+                        }
+
+                        Damage.Subtract(damage, 0, 0);
+
+                        // Render white first and then the mirrored window over
+                        Render.Composite(3, renderIdWhite, 0, ridDest, 0, 0, 0, 0, 0, 0, widthDest, heightDest);
+                        Render.Composite(3, renderIdSrc, 0, ridDest, 0, 0, 0, 0, scaleAndOffset.xOffset, scaleAndOffset.yOffset, widthDest, heightDest);
                     });
                 });
             });
