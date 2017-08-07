@@ -72,7 +72,7 @@ function getRGBAVisual(display)
  * @param display
  * @returns {Promise.<*>}
  */
-async function createSelectRegionWindow(display)
+async function createSelectRegionWindow(display, widGeometry)
 {
     let X = display.client;
     let root = display.screen[0].root;
@@ -84,9 +84,9 @@ async function createSelectRegionWindow(display)
 
     let markerWid = X.AllocID();
     X.CreateWindow(
-        markerWid, root, 0, 0,
-        display.screen[0].pixel_width,
-        display.screen[0].pixel_height,
+        markerWid, root, widGeometry.xPos, widGeometry.yPos,
+        widGeometry.width,
+        widGeometry.height,
         0, 32, 1, visual,
         {
             eventMask: Exposure | ButtonPress | ButtonRelease | PointerMotion,
@@ -226,9 +226,16 @@ x11.createClient(async function(err, display) {
                     // Let the user click again normally
                     X.UngrabPointer(CurrentTime);
 
+                    // Get info about the geometry of the source window
+                    let geometrySource = await new Promise(function (resolve, reject) {
+                        X.GetGeometry(widSrc, function(err, data) {
+                            resolve(data);
+                        });
+                    });
+
                     // Get the selected area of the window to show
                     console.log('Select the area you want to mirror...');
-                    let selectedArea = await createSelectRegionWindow(display);
+                    let selectedArea = await createSelectRegionWindow(display, geometrySource);
 
                     // Allow compositing
                     Composite.RedirectWindow(widSrc, Composite.Redirect.Automatic);
@@ -238,13 +245,6 @@ x11.createClient(async function(err, display) {
                     Damage.Create(damage, widSrc, Damage.ReportLevel.NonEmpty);
 
                     Shape.SelectInput(widSrc, true);
-
-                    // Get info about the geometry of the source window
-                    let geometrySource = await new Promise(function (resolve, reject) {
-                        X.GetGeometry(widSrc, function(err, data) {
-                            resolve(data);
-                        });
-                    });
 
                     // Calculate the depthFormat from the depth of the source
                     let format = 0;
