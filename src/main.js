@@ -5,6 +5,9 @@ const GrabModeSync = 0;
 const GrabModeAsync = 1;
 const SyncPointer = 0;
 
+const ButtonPress = x11.eventMask.ButtonPress;
+const ButtonRelease = x11.eventMask.ButtonRelease;
+
 const Exposure = x11.eventMask.Exposure;
 
 function calculateScaleAndOffset(srcW, srcH, destW, destH)
@@ -38,7 +41,7 @@ x11.createClient(async function(err, display) {
                     console.log('If none selected, the application will exit in 5 seconds.');
 
                     // Grab the control of the pointer to allow user click the window that wants
-                    X.GrabPointer(root, false, x11.eventMask.ButtonPress | x11.eventMask.ButtonRelease, GrabModeSync, GrabModeAsync, 0, 0, CurrentTime);
+                    X.GrabPointer(root, false, ButtonPress | ButtonRelease, GrabModeSync, GrabModeAsync, 0, 0, CurrentTime);
                     X.AllowEvents(SyncPointer, CurrentTime);
 
                     // Set a timeout to exit the application in case no one clicks a window
@@ -118,7 +121,12 @@ x11.createClient(async function(err, display) {
                         Render.CreatePicture(ridDest, widDest, Render.rgb24);
 
                         // Calculate the scale and prepare the source render accordingly
-                        let scaleAndOffset = calculateScaleAndOffset(geometrySource.width, geometrySource.height, widthDest, heightDest);
+                        let scaleAndOffset = calculateScaleAndOffset(
+                            geometrySource.width,
+                            geometrySource.height,
+                            widthDest,
+                            heightDest
+                        );
 
                         Render.SetPictureTransform(renderIdSrc, [1,0,0,0,1,0,0,0,scaleAndOffset.scale]);
                         Render.SetPictureFilter(renderIdSrc, 'bilinear', []);
@@ -143,6 +151,8 @@ x11.createClient(async function(err, display) {
                             }
 
                             Damage.Subtract(damage, 0, 0);
+
+                            // Render white first and then the mirrored window over
                             Render.Composite(3, renderIdWhite, 0, ridDest, 0, 0, 0, 0, 0, 0, widthDest, heightDest);
                             Render.Composite(3, renderIdSrc, 0, ridDest, 0, 0, 0, 0, scaleAndOffset.xOffset, scaleAndOffset.yOffset, widthDest, heightDest);
                         });
