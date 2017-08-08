@@ -13,9 +13,9 @@ The application first asks you to select a window in your desktop.
 Once seleted, it asks you to select the region of the window that you want to mirror. 
 After selecting it, a new window will appear, mirroring the region selected previously.
 
-The following must be noted while working with this application:
-- The source window (a.k.a the window the content is mirrored from) should not be minimized: if doing so, the window 
+**The following must be noted while working with this application:**
+- The source window (a.k.a. the window the content is mirrored from) should not be minimized: if doing so, the window 
 will stop being mirrored.
 
-The application has been developed using NodeJS and the node-x11 library, and works under Linux systems running the X11 
+The application has been developed using [Node.js](https://nodejs.org/en/) and the [node-x11](https://github.com/sidorares/node-x11) library, and works under Linux systems running the X11 
 server (tested with Ubuntu + X11 + KWin).
