@@ -26,7 +26,11 @@ const Exposure = x11.eventMask.Exposure;
  */
 function calculateScaleAndOffset(srcW, srcH, destW, destH)
 {
-    let toReturn = {xOffset: 0, yOffset: 0, scale: destW / srcW};
+    let toReturn = {
+        xOffset: 0,
+        yOffset: 0,
+        scale: destW / srcW
+    };
 
     toReturn.yOffset = parseInt((destH - (srcH * toReturn.scale)) / 2);
 
@@ -70,6 +74,7 @@ function getRGBAVisual(display)
 /**
  * Creates a window for selection the region that is wanted to show from the window, and handles everything related.
  * @param display
+ * @param widGeometry
  * @returns {Promise.<*>}
  */
 async function createSelectRegionWindow(display, widGeometry)
@@ -79,9 +84,11 @@ async function createSelectRegionWindow(display, widGeometry)
 
     let visual = getRGBAVisual(display);
 
+    // Create a colormap based on the RGBA visual
     let cmid = X.AllocID();
     X.CreateColormap(cmid, root, visual, 0);
 
+    // Create the window that will cover the selected window
     let markerWid = X.AllocID();
     X.CreateWindow(
         markerWid, root, widGeometry.xPos, widGeometry.yPos,
@@ -99,10 +106,11 @@ async function createSelectRegionWindow(display, widGeometry)
 
     X.MapWindow(markerWid);
 
+    // Allow the user to select an area
     let subWid;
     let selectionStarted = false;
 
-    let selectedArea = await new Promise(function (resolve, reject) {
+    let selectedArea = await new Promise(function (resolve) {
         let selectedArea = {x: 0, y: 0, width: 0, height: 0};
 
         X.on('event', function (ev) {
@@ -168,11 +176,11 @@ async function createSelectRegionWindow(display, widGeometry)
  * @returns {number}
  */
 function colorInt (a,r,g,b) {
-    var a1 = a / 255;
-    var ra = Math.floor(a1*r);
-    var ga = Math.floor(a1*g);
-    var ba = Math.floor(a1*b);
-    var d = 256;
+    let a1 = a / 255;
+    let ra = Math.floor(a1*r);
+    let ga = Math.floor(a1*g);
+    let ba = Math.floor(a1*b);
+    let d = 256;
     return a*d*d*d + ra*d*d + ga*d + ba;
 }
 
@@ -202,7 +210,7 @@ x11.createClient(async function(err, display) {
                     }, 5000);
 
                     // Wait for a button press
-                    let widSrc = await new Promise(function (resolve, reject) {
+                    let widSrc = await new Promise(function (resolve) {
                         let pressCallback = async function (ev) {
                             // We only want presses
                             if (ev.name !== 'ButtonPress' || ev.child === root) {
@@ -227,7 +235,7 @@ x11.createClient(async function(err, display) {
                     X.UngrabPointer(CurrentTime);
 
                     // Get info about the geometry of the source window
-                    let geometrySource = await new Promise(function (resolve, reject) {
+                    let geometrySource = await new Promise(function (resolve) {
                         X.GetGeometry(widSrc, function(err, data) {
                             resolve(data);
                         });
