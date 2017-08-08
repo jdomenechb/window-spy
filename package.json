@@ -1,12 +1,14 @@
 {
   "name": "window-spy",
+  "author": "Jordi Domènech Bonilla <jdomenechb.borges@gmail.com>",
+  "description": "A real-time mirror of a window region of your choice (Linux, X.Org, NodeJS).",
   "version": "0.1.0",
   "main": "src/main.js",
-  "licenses": [
-    {
-      "type": "MIT"
-    }
-  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jdomenechb/window-spy.git"
+  },
   "devDependencies": {},
   "dependencies": {
     "x11": "^2.2.1"
