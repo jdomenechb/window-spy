@@ -12,6 +12,7 @@ const SyncPointer = 0;
 const ButtonPress = x11.eventMask.ButtonPress;
 const ButtonRelease = x11.eventMask.ButtonRelease;
 const PointerMotion = x11.eventMask.PointerMotion;
+const StructureNotify = x11.eventMask.StructureNotify;
 
 const Exposure = x11.eventMask.Exposure;
 
@@ -234,6 +235,10 @@ x11.createClient(async function(err, display) {
                     // Let the user click again normally
                     X.UngrabPointer(CurrentTime);
 
+                    // Bring the window to the front
+                    X.RaiseWindow(widSrc);
+
+
                     // Get info about the geometry of the source window
                     let geometrySource = await new Promise(function (resolve) {
                         X.GetGeometry(widSrc, function(err, data) {
@@ -281,7 +286,7 @@ x11.createClient(async function(err, display) {
 
                     X.CreateWindow(widDest, display.screen[0].root, 0, 0, widthDest, heightDest);
                     X.ChangeWindowAttributes(widDest, {
-                        eventMask: Exposure,
+                        eventMask: Exposure | StructureNotify,
                         backgroundPixel: white
                     });
                     X.ChangeProperty(0, widDest, X.atoms.WM_NAME, X.atoms.STRING, 8, "Window Spy");
@@ -291,9 +296,12 @@ x11.createClient(async function(err, display) {
                     let ridDest = X.AllocID();
                     Render.CreatePicture(ridDest, widDest, Render.rgb24);
 
+                    let calWidth = selectedArea.width;
+                    let calHeight = selectedArea.height;
+
                     let scaleAndOffset = calculateScaleAndOffset(
-                        selectedArea.width,
-                        selectedArea.height,
+                        calWidth,
+                        calHeight,
                         widthDest,
                         heightDest
                     );
@@ -307,16 +315,31 @@ x11.createClient(async function(err, display) {
 
                     let resized = false;
 
+
                     X.on('event', async function(ev) {
-                        // Treat the case the window is resized
+                        if (ev.name === 'ConfigureNotify' && ev.wid === widDest) {
+                            widthDest = ev.width;
+                            heightDest = ev.height;
+
+                            scaleAndOffset = calculateScaleAndOffset(
+                                calWidth,
+                                calHeight,
+                                widthDest,
+                                heightDest
+                            );
+
+                            Render.SetPictureTransform(renderIdSrc, [1,0,0,0,1,0,0,0,scaleAndOffset.scale]);
+                        }
+
+                        // Treat the case the source window is resized
                         if (ev.type === 64) {
                             // Scale event
                             resized = true;
                         }
 
                         if (resized && ev.name === 'DamageNotify') {
-                            let calWidth = Math.min(selectedArea.width, ev.area.w - selectedArea.x);
-                            let calHeight = Math.min(selectedArea.height, ev.area.h - selectedArea.y);
+                            calWidth = Math.min(selectedArea.width, ev.area.w - selectedArea.x);
+                            calHeight = Math.min(selectedArea.height, ev.area.h - selectedArea.y);
 
                             scaleAndOffset = calculateScaleAndOffset(
                                 calWidth,
