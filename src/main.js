@@ -197,6 +197,7 @@ x11.createClient(async function(err, display) {
             X.require('render', function(err, Render) {
                 X.require('shape', async function(err, Shape) {
                     // --- Select window
+                    // TODO: Indicate in a foreground window this information
                     console.log('Select a window with your mouse cursor...');
                     console.log('If none selected, the application will exit in 5 seconds.');
 
@@ -236,6 +237,7 @@ x11.createClient(async function(err, display) {
                     X.UngrabPointer(CurrentTime);
 
                     // Bring the window to the front
+                    // TODO: Try to allow as most WM as possible
                     X.RaiseWindow(widSrc);
 
 
@@ -247,6 +249,7 @@ x11.createClient(async function(err, display) {
                     });
 
                     // Get the selected area of the window to show
+                    // TODO: Indicate in a foreground window this information
                     console.log('Select the area you want to mirror...');
                     let selectedArea = await createSelectRegionWindow(display, geometrySource);
 
@@ -278,11 +281,12 @@ x11.createClient(async function(err, display) {
                     let renderIdSrc = X.AllocID();
                     Render.CreatePicture(renderIdSrc, widSrc, format, {subwindowMode: 1});
 
-                    // Create the destination window
-                    let widDest = X.AllocID();
-
+                    // Set the default size (a multiple of a 1080HD screen)
                     let widthDest = 1920/4;
                     let heightDest = 1080/4;
+
+                    // Create the destination window
+                    let widDest = X.AllocID();
 
                     X.CreateWindow(widDest, display.screen[0].root, 0, 0, widthDest, heightDest);
                     X.ChangeWindowAttributes(widDest, {
@@ -296,6 +300,7 @@ x11.createClient(async function(err, display) {
                     let ridDest = X.AllocID();
                     Render.CreatePicture(ridDest, widDest, Render.rgb24);
 
+                    // Calculate the scale and offset for the inner window
                     let calWidth = selectedArea.width;
                     let calHeight = selectedArea.height;
 
@@ -313,10 +318,11 @@ x11.createClient(async function(err, display) {
                     let renderIdWhite = X.AllocID();
                     Render.CreateSolidFill(renderIdWhite, 255, 255, 255, 0);
 
+                    // Treat events on windows
                     let resized = false;
 
-
                     X.on('event', async function(ev) {
+                        // If the target window gets resized, update the size and the scale
                         if (ev.name === 'ConfigureNotify' && ev.wid === widDest) {
                             widthDest = ev.width;
                             heightDest = ev.height;
@@ -338,6 +344,8 @@ x11.createClient(async function(err, display) {
                         }
 
                         if (resized && ev.name === 'DamageNotify') {
+                            // Update the scale and offset with the new geometry of the source window
+                            // FIXME: This can be optimized by using the ShapeNotify event not implemented in node-x11
                             calWidth = Math.min(selectedArea.width, ev.area.w - selectedArea.x);
                             calHeight = Math.min(selectedArea.height, ev.area.h - selectedArea.y);
 
@@ -351,9 +359,9 @@ x11.createClient(async function(err, display) {
                             Render.SetPictureTransform(renderIdSrc, [1,0,0,0,1,0,0,0,scaleAndOffset.scale]);
                         }
 
+                        // Render white first and then the mirrored window over
                         Damage.Subtract(damage, 0, 0);
 
-                        // Render white first and then the mirrored window over
                         Render.Composite(3, renderIdWhite, 0, ridDest, 0, 0, 0, 0, 0, 0, widthDest, heightDest);
                         Render.Composite(3, renderIdSrc, 0, ridDest, selectedArea.x * scaleAndOffset.scale, selectedArea.y * scaleAndOffset.scale, 0, 0, scaleAndOffset.xOffset, scaleAndOffset.yOffset, selectedArea.width * scaleAndOffset.scale, selectedArea.height * scaleAndOffset.scale);
                     });
