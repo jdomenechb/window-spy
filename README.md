@@ -20,3 +20,5 @@ will stop being mirrored.
 
 The application has been developed using [Node.js](https://nodejs.org/en/) and the [node-x11](https://github.com/sidorares/node-x11) library, and works under Linux systems running the X11 
 server (tested with Ubuntu + X11 + KWin).
+
+Please, feel free to contribute with bug reports or pull requests.
