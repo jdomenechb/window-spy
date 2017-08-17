@@ -82,8 +82,34 @@ async function createSelectRegionWindow(display, widGeometry)
 {
     let X = display.client;
     let root = display.screen[0].root;
+    let white = display.screen[0].white_pixel;
 
     let visual = getRGBAVisual(display);
+
+    let infoWindow = X.AllocID();
+    let infoWindowW = 270;
+    let infoWindowH = 30;
+
+    X.CreateWindow(
+        infoWindow, root,
+        parseInt((display.screen[0].pixel_width - infoWindowW) / 2),
+        parseInt((display.screen[0].pixel_height - infoWindowH) / 2),
+        infoWindowW,
+        infoWindowH);
+
+    X.ChangeWindowAttributes(infoWindow, {
+        eventMask: Exposure | StructureNotify,
+        backgroundPixel: white,
+        overrideRedirect: true,
+        borderPixel: 0
+    });
+
+    X.MapWindow(infoWindow);
+
+    let infoWindowGc = X.AllocID();
+    X.CreateGC(infoWindowGc, infoWindow);
+
+    X.PolyText8(infoWindow, infoWindowGc, 20, 20, ['Select the area you want to mirror...']);
 
     // Create a colormap based on the RGBA visual
     let cmid = X.AllocID();
@@ -163,6 +189,7 @@ async function createSelectRegionWindow(display, widGeometry)
         });
     });
 
+    X.DestroyWindow(infoWindow);
     X.DestroyWindow(markerWid);
 
     return selectedArea;
@@ -267,7 +294,6 @@ x11.createClient(async function(err, display) {
                     // TODO: Try to allow as most WM as possible
                     X.RaiseWindow(widSrc);
 
-
                     // Get info about the geometry of the source window
                     let geometrySource = await new Promise(function (resolve) {
                         X.GetGeometry(widSrc, function(err, data) {
@@ -276,8 +302,6 @@ x11.createClient(async function(err, display) {
                     });
 
                     // Get the selected area of the window to show
-                    // TODO: Indicate in a foreground window this information
-                    console.log('Select the area you want to mirror...');
                     let selectedArea = await createSelectRegionWindow(display, geometrySource);
 
                     // Allow compositing
