@@ -197,9 +197,33 @@ x11.createClient(async function(err, display) {
             X.require('render', function(err, Render) {
                 X.require('shape', async function(err, Shape) {
                     // --- Select window
-                    // TODO: Indicate in a foreground window this information
-                    console.log('Select a window with your mouse cursor...');
-                    console.log('If none selected, the application will exit in 5 seconds.');
+
+                    // Create an information window
+                    var infoWindow = X.AllocID();
+                    var infoWindowW = 400;
+                    var infoWindowH = 40;
+
+                    X.CreateWindow(
+                        infoWindow, root,
+                        parseInt((display.screen[0].pixel_width - infoWindowW) / 2),
+                        parseInt((display.screen[0].pixel_height - infoWindowH) / 2),
+                        infoWindowW,
+                        infoWindowH);
+
+                    X.ChangeWindowAttributes(infoWindow, {
+                        eventMask: Exposure | StructureNotify,
+                        backgroundPixel: white,
+                        overrideRedirect: true,
+                        borderPixel: 0
+                    });
+
+                    X.MapWindow(infoWindow);
+
+                    var infoWindowGc = X.AllocID();
+                    X.CreateGC(infoWindowGc, infoWindow);
+
+                    X.PolyText8(infoWindow, infoWindowGc, 75, 15, ['Select a window with your mouse cursor...']);
+                    X.PolyText8(infoWindow, infoWindowGc, 27, 30, ['If none selected, the application will exit in 5 seconds.']);
 
                     // Grab the control of the pointer to allow user click the window that wants
                     X.GrabPointer(root, false, ButtonPress | ButtonRelease, GrabModeSync, GrabModeAsync, 0, 0, CurrentTime);
@@ -208,6 +232,7 @@ x11.createClient(async function(err, display) {
                     // Set a timeout to exit the application in case no one clicks a window
                     let timeoutId = setTimeout(function () {
                         X.UngrabPointer(CurrentTime);
+                        X.DestroyWindow(infoWindow);
                         process.exit();
                     }, 5000);
 
@@ -215,7 +240,7 @@ x11.createClient(async function(err, display) {
                     let widSrc = await new Promise(function (resolve) {
                         let pressCallback = async function (ev) {
                             // We only want presses
-                            if (ev.name !== 'ButtonPress' || ev.child === root) {
+                            if (ev.name !== 'ButtonPress' || ev.child === root || ev.child === infoWindow) {
                                 return;
                             }
 
@@ -223,6 +248,8 @@ x11.createClient(async function(err, display) {
 
                             // Avoid to execute the default timeout
                             clearTimeout(timeoutId);
+
+                            X.DestroyWindow(infoWindow);
 
                             resolve(ev.child);
                         };
