@@ -389,16 +389,10 @@ x11.createClient(async function(err, display) {
                         }
 
                         // Treat the case the source window is resized
-                        if (ev.type === 64) {
-                            // Scale event
-                            resized = true;
-                        }
-
-                        if (resized && ev.name === 'DamageNotify') {
+                        if (ev.name === 'ShapeNotify' && ev.window === widSrc) {
                             // Update the scale and offset with the new geometry of the source window
-                            // FIXME: This can be optimized by using the ShapeNotify event not implemented in node-x11
-                            calWidth = Math.min(selectedArea.width, ev.area.w - selectedArea.x);
-                            calHeight = Math.min(selectedArea.height, ev.area.h - selectedArea.y);
+                            calWidth = Math.min(selectedArea.width, ev.width - selectedArea.x);
+                            calHeight = Math.min(selectedArea.height, ev.height - selectedArea.y);
 
                             scaleAndOffset = calculateScaleAndOffset(
                                 calWidth,
