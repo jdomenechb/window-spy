@@ -407,6 +407,16 @@ x11.createClient(async function(err, display) {
                         // Render white first and then the mirrored window over
                         Damage.Subtract(damage, 0, 0);
 
+                        if (scaleAndOffset.x > 0) {
+                            Render.Composite(3, renderIdWhite, 0, ridDest, 0, 0, 0, 0, 0, 0, scaleAndOffset.x, heightDest);
+                            Render.Composite(3, renderIdWhite, 0, ridDest, 0, 0, 0, 0, widthDest - scaleAndOffset.x, 0, scaleAndOffset.x, heightDest);
+                        }
+
+                        if (scaleAndOffset.y > 0) {
+                            Render.Composite(3, renderIdWhite, 0, ridDest, 0, 0, 0, 0, 0, 0, widthDest, scaleAndOffset.y);
+                            Render.Composite(3, renderIdWhite, 0, ridDest, 0, 0, 0, 0, 0, heightDest - scaleAndOffset.y, widthDest, scaleAndOffset.y);
+                        }
+
                         Render.Composite(3, renderIdWhite, 0, ridDest, 0, 0, 0, 0, 0, 0, widthDest, heightDest);
                         Render.Composite(3, renderIdSrc, 0, ridDest, selectedArea.x * scaleAndOffset.scale, selectedArea.y * scaleAndOffset.scale, 0, 0, scaleAndOffset.xOffset, scaleAndOffset.yOffset, selectedArea.width * scaleAndOffset.scale, selectedArea.height * scaleAndOffset.scale);
                     });
